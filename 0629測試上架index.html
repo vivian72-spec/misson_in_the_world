@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>國際總動援 - 探尋地圖</title>
+    <!-- 引入 Tailwind CSS 快速建立高質感排版 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 🎨 老師指定的專屬色票設定 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        theme: {
+                            yellow: '#f2c818',
+                            black: '#000000',
+                            red: '#e93421',
+                            gray: '#8b8b8b',
+                            white: '#FFFFFF'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* 自訂樣式：確保地圖格子永遠保持正方形，並加入平滑的動畫過渡效果 */
+        .game-tile { aspect-ratio: 1 / 1; transition: all 0.3s ease; }
+        .game-tile:hover { transform: translateY(-6px); box-shadow: 0 15px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* 骰子滾動動畫 */
+        @keyframes dice-roll {
+            0% { transform: rotate(0deg) scale(1); }
+            25% { transform: rotate(-15deg) scale(1.1); }
+            50% { transform: rotate(15deg) scale(1.1); }
+            75% { transform: rotate(-15deg) scale(1.1); }
+            100% { transform: rotate(0deg) scale(1); }
+        }
+        .animate-dice-roll { animation: dice-roll 0.4s ease-in-out infinite; }
+
+        /* 自訂卡牌捲軸 */
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #8b8b8b; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-[#f5f5f5] min-h-screen flex flex-col py-6 px-4 font-sans text-theme-black relative">
+
+    <!-- ========================================== -->
+    <!-- 🖼️ 老師自訂圖片替換區 (JavaScript) -->
+    <!-- ========================================== -->
+    <script>
+        const GAME_ASSETS = {
+            res_money: '💰',
+            res_material: '📦',
+            res_tech: '⚙️',
+            res_house: '🏠',
+            idx_social: '👥',
+            idx_econ: '📈',
+            idx_env: '🌳',
+
+            token_me: '🤵',
+            token_p1: '👑',
+            token_p2: '👕',
+            token_p3: '⚖️',
+
+            map_start: '🏁',
+            map_sos: '🚨',
+            map_trade: '🚢',
+            map_meet: '🤝',
+            map_empty: '⚪'
+        };
+    </script>
+
+
+    <!-- ========================================== -->
+    <!-- 🎮 模擬多人連線：遊戲大廳與分配畫面 -->
+    <!-- ========================================== -->
+    <div id="lobbyModal" class="fixed inset-0 bg-theme-black/90 z-[200] flex items-center justify-center p-4 backdrop-blur-sm transition-opacity duration-500">
+        <div class="bg-theme-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl relative overflow-hidden border-2 border-theme-black">
+            <h1 class="text-3xl font-extrabold text-theme-black mb-2 tracking-wider relative z-10">國際總動援</h1>
+            <p class="text-theme-gray font-bold mb-8 text-sm relative z-10">多人連線大廳 (概念展示)</p>
+            
+            <div class="flex flex-col gap-4 relative z-10">
+                <input id="room-input" type="text" placeholder="輸入房間代碼 (如: A1B2)" class="w-full border-2 border-theme-gray/50 rounded-xl px-4 py-3 font-bold text-center uppercase tracking-widest text-lg focus:border-theme-black outline-none bg-theme-white transition-colors">
+                <button onclick="joinGame(false)" class="w-full bg-theme-black text-theme-yellow font-bold py-3.5 rounded-xl hover:bg-theme-gray transition shadow-md active:scale-95 text-lg">加入遊戲</button>
+                
+                <div class="relative flex items-center py-2">
+                    <div class="flex-grow border-t border-theme-gray/30"></div>
+                    <span class="flex-shrink-0 mx-4 text-theme-gray text-xs font-bold tracking-widest">或</span>
+                    <div class="flex-grow border-t border-theme-gray/30"></div>
+                </div>
+                
+                <button onclick="joinGame(true)" class="w-full bg-theme-yellow border-2 border-theme-black text-theme-black font-bold py-3.5 rounded-xl hover:bg-[#e0b816] transition shadow-sm active:scale-95 text-lg">創建新房間</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 角色與任務揭曉視窗 -->
+    <div id="roleRevealModal" class="fixed inset-0 bg-theme-black/95 z-[250] flex items-center justify-center p-4 backdrop-blur-md hidden opacity-0 transition-opacity duration-500">
+        <div class="bg-theme-white border-2 border-theme-yellow rounded-3xl p-8 max-w-sm w-full shadow-2xl relative overflow-hidden text-center transform transition-transform duration-500 scale-95" id="roleRevealContainer">
+            <h2 class="text-3xl font-black text-theme-black mb-6 flex items-center justify-center gap-2"><span class="animate-bounce">🎉</span> 派發完畢</h2>
+            
+            <p class="text-theme-gray font-bold text-sm mb-2 uppercase tracking-widest">您的專屬角色是</p>
+            <div class="bg-theme-yellow/20 border-2 border-theme-yellow rounded-2xl p-4 mb-6 flex items-center gap-4 justify-center shadow-inner">
+                <span class="text-5xl asset-p0 drop-shadow-md">🤵</span>
+                <div class="text-left">
+                    <span class="block font-black text-theme-black text-xl">班可迪斯國</span>
+                    <span class="block text-theme-black font-bold text-sm">經濟大臣</span>
+                </div>
+            </div>
+            
+            <p class="text-theme-gray font-bold text-sm mb-2 uppercase tracking-widest">您的個人任務是</p>
+            <div class="bg-theme-gray/10 border-2 border-theme-gray/30 rounded-2xl p-5 mb-8 text-left shadow-inner">
+                <h3 class="font-black text-theme-black flex items-center gap-2 mb-2 text-lg">🎯 <span id="reveal-pm-title">載入中...</span></h3>
+                <p class="text-sm text-theme-gray font-bold leading-relaxed mb-3" id="reveal-pm-desc"></p>
+                <div class="bg-theme-white border border-theme-gray/30 p-2 rounded-lg mb-2 text-center">
+                    <p class="text-xs text-theme-black font-bold mb-1">📌 需收集資源</p>
+                    <div class="grid grid-cols-4 gap-2 text-xs font-bold" id="reveal-pm-req"></div>
+                </div>
+                <div class="text-sm font-bold text-theme-black text-center mt-3 bg-theme-yellow py-2 rounded-lg border-2 border-theme-black shadow-sm">
+                    🎁 獎勵：<span id="reveal-pm-reward"></span>
+                </div>
+            </div>
+            
+            <button onclick="startGame()" class="w-full bg-theme-black text-theme-white font-bold py-4 rounded-xl hover:bg-theme-gray transition shadow-lg active:translate-y-1 text-lg border-2 border-theme-black">正式進入遊戲</button>
+        </div>
+    </div>
+
+    <!-- 房間代碼 Badge -->
+    <div class="absolute top-4 right-4 bg-theme-black text-theme-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg flex items-center gap-2 z-50 border-2 border-theme-yellow">
+        <span class="text-theme-gray">房間代碼:</span>
+        <span id="display-room-code" class="text-theme-yellow tracking-wider text-base">----</span>
+    </div>
+
+    <div id="global-tooltip" class="fixed hidden bg-theme-black/95 text-theme-white p-4 rounded-xl shadow-2xl z-[100] w-64 pointer-events-none transform transition-opacity opacity-0 border border-theme-yellow"></div>
+
+    <div class="w-full max-w-[1400px] mx-auto flex flex-col items-center mb-6 mt-4">
+        
+        <!-- 遊戲標題 -->
+        <div class="text-center mb-6">
+            <h1 class="text-4xl font-extrabold text-theme-black tracking-wider mb-2 drop-shadow-sm">國際總動援</h1>
+            <p class="text-lg font-bold text-theme-gray tracking-widest uppercase">Mission in the World</p>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 遊戲進度與流程控制列 -->
+        <!-- ========================================== -->
+        <div class="w-full bg-theme-white rounded-2xl shadow-sm border-2 border-theme-gray/30 p-4 mb-6 flex flex-col xl:flex-row items-center gap-4">
+            <div class="flex items-center gap-3 shrink-0 xl:border-r-2 border-theme-gray/30 xl:pr-4">
+                <span class="text-sm text-theme-gray font-bold tracking-wider">⏳ 遊戲進度</span>
+                <div class="flex items-center gap-2 bg-theme-yellow/20 p-1.5 rounded-xl border border-theme-yellow">
+                    <button onclick="updateRound(-1)" class="w-7 h-7 rounded bg-theme-white text-theme-black border border-theme-gray/30 hover:bg-theme-yellow shadow-sm flex items-center justify-center font-bold active:scale-95 transition-colors">-</button>
+                    <span id="val-round" class="text-base font-black text-theme-black min-w-[80px] text-center">第 1 回合</span>
+                    <button onclick="updateRound(1)" class="w-7 h-7 rounded bg-theme-white text-theme-black border border-theme-gray/30 hover:bg-theme-yellow shadow-sm flex items-center justify-center font-bold active:scale-95 transition-colors">+</button>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 overflow-x-auto w-full flex-nowrap custom-scroll pb-2 xl:pb-0">
+                <span class="text-sm font-bold text-theme-gray shrink-0 mr-1">遊戲流程：</span>
+                <div class="flex items-center gap-1.5 shrink-0 bg-theme-gray/10 px-3 py-1.5 rounded-lg border border-theme-gray/30">
+                    <span class="bg-theme-black text-theme-white text-xs font-black w-5 h-5 rounded-full flex items-center justify-center">1</span><span class="text-sm font-bold text-theme-black">領取資源</span>
+                </div>
+                <span class="text-theme-gray font-black">➔</span>
+                <div class="flex items-center gap-1.5 shrink-0 bg-theme-gray/10 px-3 py-1.5 rounded-lg border border-theme-gray/30">
+                    <span class="bg-theme-black text-theme-white text-xs font-black w-5 h-5 rounded-full flex items-center justify-center">2</span><span class="text-sm font-bold text-theme-black">翻開共同任務</span>
+                </div>
+                <span class="text-theme-gray font-black">➔</span>
+                <div class="flex items-center gap-2 shrink-0 bg-theme-yellow border-2 border-theme-black px-3 py-1.5 rounded-xl shadow-sm">
+                    <span class="bg-theme-black text-theme-white text-xs font-black w-5 h-5 rounded-full flex items-center justify-center">3</span><span class="text-sm font-bold text-theme-black mr-1">玩家輪流行動</span>
+                    <div class="flex items-center gap-1 bg-theme-white p-1 rounded-lg border border-theme-black">
+                        <div class="flex items-center gap-1 font-bold text-theme-yellow bg-theme-black px-2 py-0.5 rounded shadow-sm transition-all opacity-100 text-xs" id="player-turn-0"><span class="text-base asset-p0">🤵</span> 我</div>
+                        <div class="flex items-center gap-1 font-bold text-theme-gray px-1 transition-all opacity-50 text-xs" id="player-turn-1"><span class="text-base asset-p1">👑</span> P2</div>
+                        <div class="flex items-center gap-1 font-bold text-theme-gray px-1 transition-all opacity-50 text-xs" id="player-turn-2"><span class="text-base asset-p2">👕</span> P3</div>
+                        <div class="flex items-center gap-1 font-bold text-theme-gray px-1 transition-all opacity-50 text-xs" id="player-turn-3"><span class="text-base asset-p3">⚖️</span> P4</div>
+                        <button onclick="nextTurn()" class="ml-2 bg-theme-white border border-theme-black text-theme-black text-[11px] font-bold px-2.5 py-1 rounded hover:bg-theme-gray hover:text-theme-white active:scale-95 transition-all shadow-sm">結束換人 ⏭️</button>
+                    </div>
+                </div>
+                <span class="text-theme-gray font-black">➔</span>
+                <div class="flex items-center gap-1.5 shrink-0 bg-theme-gray/10 px-3 py-1.5 rounded-lg border border-theme-gray/30">
+                    <span class="bg-theme-black text-theme-white text-xs font-black w-5 h-5 rounded-full flex items-center justify-center">4</span><span class="text-sm font-bold text-theme-black">更新世界狀態</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 全局資訊區：世界狀態與卡牌放置區 -->
+        <!-- ========================================== -->
+        <div class="w-full bg-theme-white rounded-3xl shadow-md border-2 border-theme-gray/30 p-6 flex flex-col gap-6 relative overflow-hidden">
+            
+            <div class="w-full z-10 border-b-2 border-theme-gray/20 pb-6">
+                <h3 class="text-sm font-bold text-theme-gray mb-6 flex items-center gap-2">
+                    <span>🌍 全局世界狀態</span>
+                    <span id="val-world" class="text-xs font-bold text-theme-white bg-theme-black px-3 py-1 rounded-md transition-colors ml-2">起點 (0)</span>
+                </h3>
+                <div class="flex items-center w-full px-2">
+                    <button onclick="updateWorld(-1)" class="w-8 h-8 shrink-0 rounded-full bg-theme-white border-2 border-theme-black text-theme-black hover:bg-theme-gray shadow-sm flex items-center justify-center font-bold active:scale-95 text-lg z-10 transition-colors">-</button>
+                    <div class="flex-1 relative mx-3 md:mx-6 flex items-center h-8">
+                        <div class="absolute left-0 right-0 h-2 bg-theme-gray/30 rounded-full z-0"></div>
+                        <div id="world-track-fill" class="absolute h-2 rounded-full z-0 transition-all duration-500 bg-theme-black" style="left: 55.55%; width: 0%;"></div>
+                        <div class="absolute left-0 right-0 flex justify-between items-center w-full z-10">
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(-5)"><div class="node-circle w-4 h-4 md:w-5 md:h-5 rounded-full border-4 border-theme-white bg-theme-red shadow-md transition-all duration-300"></div><span class="absolute top-6 text-[10px] md:text-xs font-black text-theme-red w-16 text-center transition-all duration-300">世界滅亡</span></div>
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(-4)"><div class="node-circle w-2.5 h-2.5 rounded-full border-2 border-theme-white bg-theme-red shadow-sm transition-all duration-300"></div></div>
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(-3)"><div class="node-circle w-4 h-4 md:w-5 md:h-5 rounded-full border-4 border-theme-white bg-theme-red shadow-md transition-all duration-300"></div><span class="absolute top-6 text-[10px] md:text-xs font-black text-theme-red w-16 text-center transition-all duration-300">動盪不安</span></div>
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(-2)"><div class="node-circle w-2.5 h-2.5 rounded-full border-2 border-theme-white bg-theme-red shadow-sm transition-all duration-300"></div></div>
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(-1)"><div class="node-circle w-2.5 h-2.5 rounded-full border-2 border-theme-white bg-theme-red shadow-sm transition-all duration-300"></div></div>
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(0)"><div class="node-circle w-5 h-5 md:w-6 md:h-6 rounded-full border-4 border-theme-white bg-theme-black shadow-md transition-all duration-300"></div><span class="absolute top-7 text-xs md:text-sm font-black text-theme-black w-16 text-center transition-all duration-300">起點</span></div>
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(1)"><div class="node-circle w-2.5 h-2.5 rounded-full border-2 border-theme-white bg-theme-yellow shadow-sm transition-all duration-300"></div></div>
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(2)"><div class="node-circle w-4 h-4 md:w-5 md:h-5 rounded-full border-4 border-theme-white bg-theme-yellow shadow-md transition-all duration-300"></div><span class="absolute top-6 text-[10px] md:text-xs font-black text-theme-yellow w-16 text-center transition-all duration-300">豐衣足食</span></div>
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(3)"><div class="node-circle w-2.5 h-2.5 rounded-full border-2 border-theme-white bg-theme-yellow shadow-sm transition-all duration-300"></div></div>
+                            <div class="world-node relative flex flex-col items-center group cursor-pointer" onclick="setWorld(4)"><div class="node-circle w-4 h-4 md:w-5 md:h-5 rounded-full border-4 border-theme-white bg-theme-yellow shadow-md transition-all duration-300"></div><span class="absolute top-6 text-[10px] md:text-xs font-black text-theme-yellow w-16 text-center transition-all duration-300">世界永續</span></div>
+                        </div>
+                    </div>
+                    <button onclick="updateWorld(1)" class="w-8 h-8 shrink-0 rounded-full bg-theme-white border-2 border-theme-black text-theme-black hover:bg-theme-gray shadow-sm flex items-center justify-center font-bold active:scale-95 text-lg z-10 transition-colors">+</button>
+                </div>
+            </div>
+            
+            <!-- ✅ 共同任務卡 與 緊急事件卡放置區 (加入底板使其不被隱藏) -->
+            <div class="flex flex-col lg:flex-row gap-6 z-10">
+                <div class="flex-1 bg-theme-gray/10 p-5 rounded-2xl border border-theme-gray/30">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-base font-black text-theme-black flex items-center gap-2"><span>🤝 共同任務卡 (累積區)</span></h3>
+                        <button onclick="drawMission()" class="bg-theme-black text-theme-yellow hover:bg-theme-gray hover:text-theme-white text-sm px-4 py-2 rounded-lg font-bold shadow-sm transition-colors active:scale-95 border-2 border-theme-black">➕ 抽取任務</button>
+                    </div>
+                    <div id="common-missions-container" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"></div>
+                </div>
+                
+                <div class="w-full lg:w-72 bg-theme-red/10 p-5 rounded-2xl border border-theme-red/30">
+                    <h3 class="text-base font-black text-theme-red mb-4 flex items-center gap-2"><span>🚨 緊急事件 (擱置區)</span></h3>
+                    <div id="emergency-events-container" class="grid grid-cols-2 gap-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ========================================== -->
+    <!-- 中間：主視覺佈局 (左側地圖+情報 / 右側個人) -->
+    <!-- ========================================== -->
+    <div class="flex flex-col xl:flex-row gap-6 max-w-[1400px] mx-auto w-full items-start justify-center">
+        
+        <!-- 左側群組 -->
+        <div class="w-full xl:w-2/3 flex flex-col gap-6">
+            
+            <!-- 左上層：地圖與骰子 -->
+            <div class="flex flex-col lg:flex-row gap-6 items-start justify-center w-full">
+                
+                <!-- 地圖區域 -->
+                <div class="w-full max-w-[800px] overflow-x-auto no-scrollbar pb-4 lg:pb-2">
+                    <div class="grid grid-cols-4 gap-4 md:gap-5 min-w-[700px] mx-auto p-5 bg-theme-white border-2 border-theme-gray/30 rounded-3xl shadow-sm relative" id="map-board">
+                        
+                        <!-- 第一列 -->
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-black relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none">
+                                <div id="token-me" draggable="true" ondragstart="drag(event)" class="cursor-grab active:cursor-grabbing hover:scale-110 transition text-sm bg-theme-white border-2 border-theme-black rounded-full w-7 h-7 flex items-center justify-center shadow-md pointer-events-auto asset-p0" title="我">🤵</div>
+                                <div id="token-p1" draggable="true" ondragstart="drag(event)" class="cursor-grab active:cursor-grabbing hover:scale-110 transition text-sm bg-theme-white border-2 border-theme-black rounded-full w-7 h-7 flex items-center justify-center shadow-md pointer-events-auto asset-p1" title="P2">👑</div>
+                                <div id="token-p2" draggable="true" ondragstart="drag(event)" class="cursor-grab active:cursor-grabbing hover:scale-110 transition text-sm bg-theme-white border-2 border-theme-black rounded-full w-7 h-7 flex items-center justify-center shadow-md pointer-events-auto asset-p2" title="P3">👕</div>
+                                <div id="token-p3" draggable="true" ondragstart="drag(event)" class="cursor-grab active:cursor-grabbing hover:scale-110 transition text-sm bg-theme-white border-2 border-theme-black rounded-full w-7 h-7 flex items-center justify-center shadow-md pointer-events-auto asset-p3" title="P4">⚖️</div>
+                            </div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="起點" data-subtitle="START"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-start">🏁</div>
+                            <h3 class="font-black text-theme-black text-xl">起點</h3>
+                        </div>
+                        
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-yellow relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資源蒐集" data-subtitle="金錢"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-money text-theme-yellow">💰</div>
+                            <h3 class="font-black text-theme-black text-lg">資源蒐集</h3>
+                        </div>
+                        <!-- 社會：紅色設定 -->
+                        <div class="game-tile bg-red-50 rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-red-500 relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資訊判讀" data-subtitle="社會新聞"></div>
+                            <div class="text-5xl mb-2 mt-4 group-hover:scale-110 transition-transform asset-social text-red-600">👥</div>
+                            <h3 class="font-black text-red-800 text-lg">資訊判讀</h3>
+                            <span class="text-xs text-red-700 font-bold mt-1 bg-red-100 px-2 py-0.5 rounded border border-red-200">社會</span>
+                        </div>
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-red relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資源蒐集" data-subtitle="房子"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-house text-theme-red">🏠</div>
+                            <h3 class="font-black text-theme-black text-lg">資源蒐集</h3>
+                        </div>
+
+                        <!-- 第二列 -->
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-black relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資源蒐集" data-subtitle="物資"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-material text-theme-black">📦</div>
+                            <h3 class="font-black text-theme-black text-lg">資源蒐集</h3>
+                        </div>
+                        <div class="game-tile bg-theme-red/10 rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-red relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="SOS" data-subtitle="緊急事件"></div>
+                            <div class="text-5xl mb-2 mt-4 group-hover:scale-110 transition-transform animate-pulse asset-sos text-theme-red">🚨</div>
+                            <h3 class="font-black text-theme-red text-lg text-center leading-tight">SOS<br><span class="text-sm">緊急事件</span></h3>
+                        </div>
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-gray relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資源蒐集" data-subtitle="技術"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-tech text-theme-gray">⚙️</div>
+                            <h3 class="font-black text-theme-black text-lg">資源蒐集</h3>
+                        </div>
+                        <!-- 經濟：粉紅色設定 -->
+                        <div class="game-tile bg-pink-50 rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-pink-500 relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資訊判讀" data-subtitle="經濟新聞"></div>
+                            <div class="text-5xl mb-2 mt-4 group-hover:scale-110 transition-transform asset-econ text-pink-600">📈</div>
+                            <h3 class="font-black text-pink-800 text-lg">資訊判讀</h3>
+                            <span class="text-xs text-pink-700 font-bold mt-1 bg-pink-100 px-2 py-0.5 rounded border border-pink-200">經濟</span>
+                        </div>
+
+                        <!-- 第三列 -->
+                        <!-- 環境：綠色設定 -->
+                        <div class="game-tile bg-green-50 rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-green-500 relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資訊判讀" data-subtitle="環境新聞"></div>
+                            <div class="text-5xl mb-2 mt-4 group-hover:scale-110 transition-transform asset-env text-green-600">🌳</div>
+                            <h3 class="font-black text-green-800 text-lg">資訊判讀</h3>
+                            <span class="text-xs text-green-700 font-bold mt-1 bg-green-100 px-2 py-0.5 rounded border border-green-200">環境</span>
+                        </div>
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-yellow relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資源蒐集" data-subtitle="金錢"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-money text-theme-yellow">💰</div>
+                            <h3 class="font-black text-theme-black text-lg">資源蒐集</h3>
+                        </div>
+                        <div class="game-tile bg-theme-gray/10 rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-gray relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="空白" data-subtitle="無行動"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform opacity-50 asset-empty text-theme-gray">⚪</div>
+                            <h3 class="font-black text-theme-gray text-lg">空白</h3>
+                        </div>
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-black relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資源蒐集" data-subtitle="物資"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-material text-theme-black">📦</div>
+                            <h3 class="font-black text-theme-black text-lg">資源蒐集</h3>
+                        </div>
+
+                        <!-- 第四列 -->
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-gray relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資源蒐集" data-subtitle="技術"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-tech text-theme-gray">⚙️</div>
+                            <h3 class="font-black text-theme-black text-lg">資源蒐集</h3>
+                        </div>
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-black relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="全球貿易" data-subtitle="1:1兌換"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-trade text-theme-black">🚢</div>
+                            <h3 class="font-black text-theme-black text-lg">全球貿易</h3>
+                        </div>
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-red relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="資源蒐集" data-subtitle="房子"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-house text-theme-red">🏠</div>
+                            <h3 class="font-black text-theme-black text-lg">資源蒐集</h3>
+                        </div>
+                        <div class="game-tile bg-theme-white rounded-2xl shadow-md flex flex-col items-center justify-center p-3 border-t-4 border-theme-black relative overflow-hidden group" ondragover="allowDrop(event)" ondrop="drop(event)">
+                            <div class="token-container absolute top-1.5 left-0 right-0 flex justify-center flex-wrap gap-1 px-1 z-20 pointer-events-none"></div>
+                            <div class="absolute inset-0 z-10 cursor-pointer" onclick="triggerTile(this)" data-title="國際會議" data-subtitle="過半數同意"></div>
+                            <div class="text-5xl mb-3 mt-4 group-hover:scale-110 transition-transform asset-meet text-theme-black">🤝</div>
+                            <h3 class="font-black text-theme-black text-lg">國際會議</h3>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- 🎲 虛擬骰子區塊 -->
+                <div class="w-full lg:w-40 flex-shrink-0 bg-theme-yellow/20 rounded-3xl p-5 shadow-sm border-2 border-theme-yellow flex flex-col items-center justify-start relative lg:sticky lg:top-6 z-0">
+                    <h3 class="text-sm font-bold text-theme-black mb-4 tracking-wider text-center flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256"><path d="M184,32H72A40,40,0,0,0,32,72V184a40,40,0,0,0,40,40H184a40,40,0,0,0,40-40V72A40,40,0,0,0,184,32ZM72,48H184a24,24,0,0,1,24,24V184a24,24,0,0,1-24,24H72a24,24,0,0,1-24-24V72A24,24,0,0,1,72,48ZM92,80a12,12,0,1,1-12-12A12,12,0,0,1,92,80Zm84,0a12,12,0,1,1-12-12A12,12,0,0,1,176,80Zm0,96a12,12,0,1,1-12-12A12,12,0,0,1,176,176Zm-84,0a12,12,0,1,1-12-12A12,12,0,0,1,92,176Zm48-48a12,12,0,1,1-12-12A12,12,0,0,1,140,128Z"></path></svg>
+                        行動骰子
+                    </h3>
+                    <button id="diceBtn" class="group w-28 h-28 bg-theme-white rounded-3xl shadow-md border-b-4 border-theme-black flex flex-col items-center justify-center hover:bg-theme-gray/10 hover:shadow-lg transition-all active:translate-y-1 relative z-10 cursor-pointer pointer-events-auto">
+                        <span id="diceIcon" class="text-7xl transition-transform text-theme-black">🎲</span>
+                    </button>
+                    <div id="diceResultBox" class="absolute top-[180px] lg:top-full lg:mt-4 bg-theme-black backdrop-blur-sm px-4 py-3 rounded-xl shadow-xl border-2 border-theme-yellow text-center opacity-0 transition-all duration-300 transform -translate-y-4 pointer-events-none z-20 w-48 left-1/2 -translate-x-1/2">
+                        <span id="diceResultText" class="text-theme-yellow font-black text-xl"></span>
+                        <p id="diceHintText" class="text-sm text-theme-white font-medium mt-1"></p>
+                    </div>
+                    <p class="text-xs text-theme-black/70 font-bold mt-6 text-center lg:block hidden">點擊擲骰<br>獲取資源</p>
+                </div>
+            </div> <!-- 結束 左上層 -->
+
+            <!-- ✅ 📢 獨立顯眼的即時動態廣播區塊 (放大並獨立放置) -->
+            <div class="w-full bg-theme-black text-theme-white rounded-2xl shadow-lg p-5 flex items-center gap-5 border-2 border-theme-yellow z-10">
+                <div class="bg-theme-yellow text-theme-black font-black px-4 py-2 rounded-xl shrink-0 flex items-center gap-2 shadow-sm">
+                    <span class="animate-pulse text-xl">📢</span> 即時動態
+                </div>
+                <div class="w-px h-8 bg-theme-gray/50 shrink-0"></div>
+                <span id="game-log-text" class="text-theme-white font-bold tracking-wider text-lg truncate w-full">請在上方加入遊戲以開始連線。</span>
+            </div>
+
+            <!-- 左下層：其他玩家情報區 -->
+            <div class="w-full bg-theme-white rounded-3xl shadow-sm border-2 border-theme-gray/30 p-6 z-0 relative overflow-hidden">
+                <h3 class="text-base font-bold text-theme-black mb-5 tracking-wider flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-theme-gray" viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" /></svg>
+                    對手情報區 (供交易與談判參考)
+                </h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    <div class="bg-theme-gray/10 border border-theme-gray/30 rounded-2xl p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
+                        <div class="flex items-center gap-2 border-b border-theme-gray/30 pb-2">
+                            <span class="text-2xl drop-shadow-sm asset-p1">👑</span><span class="font-bold text-theme-black truncate text-lg">阿美利卡國</span>
+                        </div>
+                        <div class="flex justify-between text-sm font-bold bg-theme-white p-2 rounded-lg border border-theme-gray/30">
+                            <span class="text-theme-yellow"><span class="asset-money">💰</span> 2</span><span class="text-theme-black"><span class="asset-material">📦</span> 5</span><span class="text-theme-gray"><span class="asset-tech">⚙️</span> 1</span><span class="text-theme-red"><span class="asset-house">🏠</span> 0</span>
+                        </div>
+                        <div class="flex justify-between text-sm font-bold bg-theme-white p-2 rounded-lg border border-theme-gray/30">
+                            <span class="text-red-600"><span class="asset-social">👥</span> 2</span><span class="text-pink-600"><span class="asset-econ">📈</span> 1</span><span class="text-green-600"><span class="asset-env">🌳</span> 4</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-theme-gray/10 border border-theme-gray/30 rounded-2xl p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
+                        <div class="flex items-center gap-2 border-b border-theme-gray/30 pb-2">
+                            <span class="text-2xl drop-shadow-sm asset-p2">👕</span><span class="font-bold text-theme-black truncate text-lg">How.How 服飾</span>
+                        </div>
+                        <div class="flex justify-between text-sm font-bold bg-theme-white p-2 rounded-lg border border-theme-gray/30">
+                            <span class="text-theme-yellow"><span class="asset-money">💰</span> 4</span><span class="text-theme-black"><span class="asset-material">📦</span> 1</span><span class="text-theme-gray"><span class="asset-tech">⚙️</span> 3</span><span class="text-theme-red"><span class="asset-house">🏠</span> 2</span>
+                        </div>
+                        <div class="flex justify-between text-sm font-bold bg-theme-white p-2 rounded-lg border border-theme-gray/30">
+                            <span class="text-red-600"><span class="asset-social">👥</span> 1</span><span class="text-pink-600"><span class="asset-econ">📈</span> 4</span><span class="text-green-600"><span class="asset-env">🌳</span> 0</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-theme-gray/10 border border-theme-gray/30 rounded-2xl p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
+                        <div class="flex items-center gap-2 border-b border-theme-gray/30 pb-2">
+                            <span class="text-2xl drop-shadow-sm asset-p3">⚖️</span><span class="font-bold text-theme-black truncate text-lg">捍衛公平委員會</span>
+                        </div>
+                        <div class="flex justify-between text-sm font-bold bg-theme-white p-2 rounded-lg border border-theme-gray/30">
+                            <span class="text-theme-yellow"><span class="asset-money">💰</span> 1</span><span class="text-theme-black"><span class="asset-material">📦</span> 2</span><span class="text-theme-gray"><span class="asset-tech">⚙️</span> 1</span><span class="text-theme-red"><span class="asset-house">🏠</span> 5</span>
+                        </div>
+                        <div class="flex justify-between text-sm font-bold bg-theme-white p-2 rounded-lg border border-theme-gray/30">
+                            <span class="text-red-600"><span class="asset-social">👥</span> 4</span><span class="text-pink-600"><span class="asset-econ">📈</span> 1</span><span class="text-green-600"><span class="asset-env">🌳</span> 2</span>
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- 結束 左下層 -->
+
+        </div> <!-- 結束 左側群組 -->
+
+        <!-- ========================================== -->
+        <!-- 右側：個人玩家儀表板 -->
+        <!-- ========================================== -->
+        <div class="w-full xl:w-1/3 bg-theme-white rounded-3xl shadow-xl p-6 flex flex-col gap-5 sticky top-6 border-2 border-theme-gray/30 z-0">
+            
+            <div class="bg-theme-black text-theme-white text-center py-2 rounded-lg font-black text-sm tracking-widest shadow-sm">⭐ 我的專屬角色面板</div>
+
+            <div class="flex items-center gap-4 pb-4 border-b border-theme-gray/30">
+                <div class="w-16 h-16 bg-theme-white rounded-full flex items-center justify-center text-3xl shadow-sm border-2 border-theme-black shrink-0 asset-p0">🤵</div>
+                <div>
+                    <h2 class="text-xl font-bold text-theme-black">班可迪斯國</h2>
+                    <span class="text-sm font-black text-theme-yellow bg-theme-black px-2 py-0.5 rounded block mb-1 w-max">經濟大臣</span>
+                    <p class="text-[11px] text-theme-gray font-bold bg-theme-gray/10 px-2 py-1 rounded-md inline-block border border-theme-gray/30">技能：領取資源時額外獲得２金錢</p>
+                </div>
+            </div>
+
+            <!-- 個人任務卡 -->
+            <div class="bg-theme-gray/10 border border-theme-gray/30 rounded-2xl p-4 relative overflow-hidden shadow-sm">
+                <div class="absolute top-0 right-0 bg-theme-black text-theme-yellow text-[10px] font-black px-2 py-1 rounded-bl-lg tracking-widest">個人任務</div>
+                <h3 class="text-sm font-bold text-theme-black mb-1 flex items-center gap-1">🎯 <span id="pm-title">請等待遊戲開始...</span></h3>
+                <p class="text-xs text-theme-gray mb-2 font-bold" id="pm-desc">連線後將發放專屬任務</p>
+                <div class="bg-theme-white border border-theme-gray/30 p-2 rounded-lg mb-3">
+                    <p class="text-[11px] text-theme-black font-bold mb-1 text-center">📌 達成條件：收集以下資源</p>
+                    <div class="grid grid-cols-4 gap-2 text-center text-xs font-bold" id="pm-req">
+                        <div class="bg-theme-white py-1.5 rounded shadow-sm text-theme-gray border border-theme-gray/30">-</div>
+                        <div class="bg-theme-white py-1.5 rounded shadow-sm text-theme-gray border border-theme-gray/30">-</div>
+                        <div class="bg-theme-white py-1.5 rounded shadow-sm text-theme-gray border border-theme-gray/30">-</div>
+                        <div class="bg-theme-white py-1.5 rounded shadow-sm text-theme-gray border border-theme-gray/30">-</div>
+                    </div>
+                </div>
+                <div class="text-xs font-bold text-theme-black bg-theme-yellow border-2 border-theme-black p-2 rounded-lg flex items-center justify-center gap-1 shadow-sm">
+                    🎁 獎勵：<span id="pm-reward">等待抽取...</span>
+                </div>
+            </div>
+
+            <!-- 資源庫 -->
+            <div>
+                <h3 class="text-sm font-bold text-theme-gray mb-3 tracking-wider flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                    擁有資源
+                </h3>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-theme-white rounded-xl p-3 flex flex-col justify-between border border-theme-gray/30 shadow-sm">
+                        <span class="text-theme-black font-bold flex items-center gap-2 mb-2"><span class="asset-money text-theme-yellow">💰</span> 金錢</span>
+                        <div class="flex items-center justify-between">
+                            <button onclick="updateRes('money', -1)" class="w-7 h-7 rounded-full bg-theme-gray/20 text-theme-black hover:bg-theme-yellow hover:border-theme-black border border-transparent font-black active:scale-95 transition-colors">-</button>
+                            <span id="res-money" class="text-2xl font-black text-theme-black">0</span>
+                            <button onclick="updateRes('money', 1)" class="w-7 h-7 rounded-full bg-theme-gray/20 text-theme-black hover:bg-theme-yellow hover:border-theme-black border border-transparent font-black active:scale-95 transition-colors">+</button>
+                        </div>
+                    </div>
+                    <div class="bg-theme-white rounded-xl p-3 flex flex-col justify-between border border-theme-gray/30 shadow-sm">
+                        <span class="text-theme-black font-bold flex items-center gap-2 mb-2"><span class="asset-material text-theme-black">📦</span> 物資</span>
+                        <div class="flex items-center justify-between">
+                            <button onclick="updateRes('material', -1)" class="w-7 h-7 rounded-full bg-theme-gray/20 text-theme-black hover:bg-theme-yellow hover:border-theme-black border border-transparent font-black active:scale-95 transition-colors">-</button>
+                            <span id="res-material" class="text-2xl font-black text-theme-black">0</span>
+                            <button onclick="updateRes('material', 1)" class="w-7 h-7 rounded-full bg-theme-gray/20 text-theme-black hover:bg-theme-yellow hover:border-theme-black border border-transparent font-black active:scale-95 transition-colors">+</button>
+                        </div>
+                    </div>
+                    <div class="bg-theme-white rounded-xl p-3 flex flex-col justify-between border border-theme-gray/30 shadow-sm">
+                        <span class="text-theme-black font-bold flex items-center gap-2 mb-2"><span class="asset-tech text-theme-gray">⚙️</span> 技術</span>
+                        <div class="flex items-center justify-between">
+                            <button onclick="updateRes('tech', -1)" class="w-7 h-7 rounded-full bg-theme-gray/20 text-theme-black hover:bg-theme-yellow hover:border-theme-black border border-transparent font-black active:scale-95 transition-colors">-</button>
+                            <span id="res-tech" class="text-2xl font-black text-theme-black">0</span>
+                            <button onclick="updateRes('tech', 1)" class="w-7 h-7 rounded-full bg-theme-gray/20 text-theme-black hover:bg-theme-yellow hover:border-theme-black border border-transparent font-black active:scale-95 transition-colors">+</button>
+                        </div>
+                    </div>
+                    <div class="bg-theme-white rounded-xl p-3 flex flex-col justify-between border border-theme-gray/30 shadow-sm">
+                        <span class="text-theme-black font-bold flex items-center gap-2 mb-2"><span class="asset-house text-theme-red">🏠</span> 房子</span>
+                        <div class="flex items-center justify-between">
+                            <button onclick="updateRes('house', -1)" class="w-7 h-7 rounded-full bg-theme-gray/20 text-theme-black hover:bg-theme-yellow hover:border-theme-black border border-transparent font-black active:scale-95 transition-colors">-</button>
+                            <span id="res-house" class="text-2xl font-black text-theme-black">0</span>
+                            <button onclick="updateRes('house', 1)" class="w-7 h-7 rounded-full bg-theme-gray/20 text-theme-black hover:bg-theme-yellow hover:border-theme-black border border-transparent font-black active:scale-95 transition-colors">+</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 行動指數 -->
+            <div>
+                <h3 class="text-sm font-bold text-theme-gray mb-3 tracking-wider flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                    行動指數 (初始 + 遊戲獲得)
+                </h3>
+                <div class="flex flex-col gap-2">
+                    <div class="flex items-center justify-between bg-red-50 rounded-lg p-2 px-3 border border-red-200 shadow-sm">
+                        <span class="text-red-800 font-bold text-sm shrink-0"><span class="asset-social">👥</span> 社會</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] font-bold text-theme-white bg-red-600 px-1.5 py-0.5 rounded shadow-sm border border-red-800">初始: 1</span><span class="text-red-300 font-bold">+</span>
+                            <div class="flex items-center gap-1">
+                                <button onclick="updateIdx('social', -1)" class="w-5 h-5 rounded bg-red-200 text-red-800 font-bold active:scale-95 flex items-center justify-center hover:bg-red-300">-</button>
+                                <span id="idx-social" class="font-black text-base text-red-700 w-4 text-center">0</span>
+                                <button onclick="updateIdx('social', 1)" class="w-5 h-5 rounded bg-red-200 text-red-800 font-bold active:scale-95 flex items-center justify-center hover:bg-red-300">+</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between bg-pink-50 rounded-lg p-2 px-3 border border-pink-200 shadow-sm">
+                        <span class="text-pink-800 font-bold text-sm shrink-0"><span class="asset-econ">📈</span> 經濟</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] font-bold text-theme-white bg-pink-600 px-1.5 py-0.5 rounded shadow-sm border border-pink-800">初始: 3</span><span class="text-pink-300 font-bold">+</span>
+                            <div class="flex items-center gap-1">
+                                <button onclick="updateIdx('econ', -1)" class="w-5 h-5 rounded bg-pink-200 text-pink-800 font-bold active:scale-95 flex items-center justify-center hover:bg-pink-300">-</button>
+                                <span id="idx-econ" class="font-black text-base text-pink-700 w-4 text-center">0</span>
+                                <button onclick="updateIdx('econ', 1)" class="w-5 h-5 rounded bg-pink-200 text-pink-800 font-bold active:scale-95 flex items-center justify-center hover:bg-pink-300">+</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between bg-green-50 rounded-lg p-2 px-3 border border-green-200 shadow-sm">
+                        <span class="text-green-800 font-bold text-sm shrink-0"><span class="asset-env">🌳</span> 環境</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] font-bold text-theme-white bg-green-600 px-1.5 py-0.5 rounded shadow-sm border border-green-800">初始: 1</span><span class="text-green-300 font-bold">+</span>
+                            <div class="flex items-center gap-1">
+                                <button onclick="updateIdx('env', -1)" class="w-5 h-5 rounded bg-green-200 text-green-800 font-bold active:scale-95 flex items-center justify-center hover:bg-green-300">-</button>
+                                <span id="idx-env" class="font-black text-base text-green-700 w-4 text-center">0</span>
+                                <button onclick="updateIdx('env', 1)" class="w-5 h-5 rounded bg-green-200 text-green-800 font-bold active:scale-95 flex items-center justify-center hover:bg-green-300">+</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 個人聲望值 (分數) -->
+            <div class="pt-4 border-t-2 border-theme-gray/20 flex flex-col gap-2 w-full mt-2">
+                <div class="flex items-center justify-between bg-theme-yellow p-4 rounded-2xl border-2 border-theme-black shadow-md">
+                    <span class="text-lg text-theme-black font-black">🏆 總計聲望值</span>
+                    <div class="flex items-center gap-3">
+                        <button onclick="updatePrestige(-1)" class="w-8 h-8 rounded-full bg-theme-white border-2 border-theme-black text-theme-black font-black active:scale-95 hover:bg-theme-gray/20">-</button>
+                        <span id="val-prestige" class="text-4xl font-black text-theme-black drop-shadow-sm min-w-[40px] text-center">0</span>
+                        <button onclick="updatePrestige(1)" class="w-8 h-8 rounded-full bg-theme-white border-2 border-theme-black text-theme-black font-black active:scale-95 hover:bg-theme-gray/20">+</button>
+                    </div>
+                </div>
+            </div>
+
+        </div> 
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 彈出視窗：卡牌與任務結算 -->
+    <!-- ========================================== -->
+    
+    <!-- 卡牌預覽視窗 -->
+    <div id="cardModal" class="fixed inset-0 bg-theme-black/90 backdrop-blur-sm z-[60] flex items-center justify-center opacity-0 pointer-events-none transition-all duration-300 p-4">
+        <div class="bg-theme-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden transform scale-95 transition-transform duration-300 border-2 border-theme-black" id="cardContainer">
+            <div id="cardHeader" class="p-5 text-center relative transition-colors duration-300">
+                <button id="closeCardBtn" class="absolute top-3 right-3 text-theme-white/70 hover:text-theme-white bg-theme-black/20 rounded-full w-8 h-8 font-bold">✕</button>
+                <div id="cardIcon" class="text-5xl mb-2 drop-shadow-md">🎴</div>
+                <h2 id="cardTitle" class="text-2xl font-black tracking-wider">標題</h2>
+                <span id="cardSubtitle" class="text-sm font-bold mt-1 block opacity-80">副標題</span>
+            </div>
+            <div class="p-6 flex flex-col gap-4">
+                <p id="cardDescription" class="text-theme-black font-medium leading-relaxed text-justify">載入中...</p>
+                
+                <div id="cardActionBox" class="bg-theme-gray/10 border border-theme-gray/30 rounded-xl p-4 text-sm hidden">
+                    <strong class="text-theme-black block mb-1 text-xs uppercase tracking-widest">解決條件</strong>
+                    <div id="cardCondition" class="flex flex-wrap gap-2 mb-3 text-theme-black font-bold"></div>
+                    <strong class="text-theme-black block mb-1 text-xs uppercase tracking-widest">成功獎勵</strong>
+                    <div id="cardReward" class="text-theme-black font-bold bg-theme-yellow inline-block px-2 py-0.5 rounded border border-theme-black shadow-sm"></div>
+                </div>
+                
+                <!-- 資訊判讀專用：揭曉解答區塊與獎勵 -->
+                <div id="newsAnswerBox" class="bg-theme-gray/10 border border-theme-gray/30 rounded-xl p-4 text-sm hidden mt-2">
+                    <strong class="text-theme-black block mb-2 text-xs uppercase tracking-widest">真相揭曉</strong>
+                    <div id="newsTruth" class="font-black mb-2 text-lg"></div>
+                    <div id="newsExplanation" class="text-theme-black font-medium text-xs mb-4 leading-relaxed"></div>
+                    <!-- 專屬獎勵區塊 -->
+                    <div id="newsRewardInfo" class="bg-theme-yellow border-2 border-theme-black text-theme-black p-3 rounded-lg font-bold text-xs shadow-sm"></div>
+                </div>
+                
+                <button id="revealNewsBtn" onclick="revealNewsAnswer()" class="hidden w-full bg-theme-yellow border-2 border-theme-black text-theme-black font-black py-3 rounded-xl hover:bg-[#d1ad15] transition-colors shadow-md active:translate-y-0.5 text-lg">揭曉解答</button>
+                
+                <div class="flex gap-2 mt-2">
+                    <button id="shelveCardBtn" onclick="shelveEmergency()" class="hidden flex-1 bg-theme-red/10 text-theme-red border border-theme-red font-bold py-3 rounded-xl hover:bg-theme-red/20 transition-colors shadow-sm">暫時擱置</button>
+                    <button id="confirmCardBtn" class="flex-1 bg-theme-black text-theme-white font-bold py-3 rounded-xl hover:bg-theme-gray transition-colors shadow-md active:translate-y-0.5">確認關閉</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 任務結算領賞視窗 -->
+    <div id="solveModal" class="fixed inset-0 bg-theme-black/90 backdrop-blur-sm z-[70] flex items-center justify-center opacity-0 pointer-events-none transition-all duration-300 p-4">
+        <div class="bg-theme-white p-6 rounded-3xl max-w-sm w-full text-center shadow-2xl transform scale-95 transition-transform duration-300 border-2 border-theme-black" id="solveContainer">
+            <div class="text-5xl mb-4">🎉</div>
+            <h3 class="text-xl font-black mb-5 text-theme-black">任務已達標！<br><span class="text-sm text-theme-gray font-bold mt-1 block">請指定由誰完成最後一擊以領取獎勵</span></h3>
+            <div class="flex flex-col gap-2">
+                <button onclick="awardSolve('me')" class="bg-theme-yellow border-2 border-theme-black text-theme-black p-3 rounded-xl font-black hover:bg-[#d1ad15] shadow-sm active:scale-95 text-lg">🤵 我 (班可迪斯國)</button>
+                <button onclick="awardSolve('p1')" class="bg-theme-gray/10 border border-theme-gray/30 text-theme-black p-3 rounded-xl font-bold hover:bg-theme-gray/20 active:scale-95">👑 阿美利卡國</button>
+                <button onclick="awardSolve('p2')" class="bg-theme-gray/10 border border-theme-gray/30 text-theme-black p-3 rounded-xl font-bold hover:bg-theme-gray/20 active:scale-95">👕 How.How 服飾</button>
+                <button onclick="awardSolve('p3')" class="bg-theme-gray/10 border border-theme-gray/30 text-theme-black p-3 rounded-xl font-bold hover:bg-theme-gray/20 active:scale-95">⚖️ 捍衛公平委員會</button>
+            </div>
+            <button onclick="closeSolveModal()" class="mt-4 text-theme-gray text-sm hover:text-theme-black font-bold py-2 w-full transition-colors">取消</button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 網頁互動邏輯 (JavaScript) -->
+    <!-- ========================================== -->
+    <script>
+        // -----------------------
+        // 老師自訂圖片替換邏輯
+        // -----------------------
+        window.addEventListener('DOMContentLoaded', () => {
+            const applyAsset = (className, content) => {
+                document.querySelectorAll('.' + className).forEach(el => el.innerHTML = content);
+            };
+
+            applyAsset('asset-money', GAME_ASSETS.res_money);
+            applyAsset('asset-material', GAME_ASSETS.res_material);
+            applyAsset('asset-tech', GAME_ASSETS.res_tech);
+            applyAsset('asset-house', GAME_ASSETS.res_house);
+            applyAsset('asset-social', GAME_ASSETS.idx_social);
+            applyAsset('asset-econ', GAME_ASSETS.idx_econ);
+            applyAsset('asset-env', GAME_ASSETS.idx_env);
+            
+            applyAsset('asset-p0', GAME_ASSETS.token_me);
+            applyAsset('asset-p1', GAME_ASSETS.token_p1);
+            applyAsset('asset-p2', GAME_ASSETS.token_p2);
+            applyAsset('asset-p3', GAME_ASSETS.token_p3);
+
+            document.querySelectorAll('.asset-start').forEach(el => el.innerHTML = GAME_ASSETS.map_start);
+            document.querySelectorAll('.asset-sos').forEach(el => el.innerHTML = GAME_ASSETS.map_sos);
+            document.querySelectorAll('.asset-trade').forEach(el => el.innerHTML = GAME_ASSETS.map_trade);
+            document.querySelectorAll('.asset-meet').forEach(el => el.innerHTML = GAME_ASSETS.map_meet);
+            document.querySelectorAll('.asset-empty').forEach(el => el.innerHTML = GAME_ASSETS.map_empty);
+        });
+
+        // -----------------------
+        // 連線登入大廳邏輯
+        // -----------------------
+        function joinGame(isNew) {
+            let code = '';
+            if (isNew) {
+                code = Math.random().toString(36).substring(2, 6).toUpperCase();
+            } else {
+                code = document.getElementById('room-input').value.trim().toUpperCase();
+                if (!code) { alert('請輸入房間代碼！'); return; }
+            }
+
+            document.getElementById('display-room-code').textContent = code;
+
+            const lobby = document.getElementById('lobbyModal');
+            lobby.classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => { lobby.classList.add('hidden'); }, 500);
+
+            initPersonalMission(); 
+
+            const revealModal = document.getElementById('roleRevealModal');
+            revealModal.classList.remove('hidden');
+            void revealModal.offsetWidth; 
+            revealModal.classList.remove('opacity-0');
+            revealModal.classList.add('opacity-100');
+            document.getElementById('roleRevealContainer').classList.remove('scale-95');
+            document.getElementById('roleRevealContainer').classList.add('scale-100');
+        }
+
+        function startGame() {
+            const revealModal = document.getElementById('roleRevealModal');
+            revealModal.classList.remove('opacity-100');
+            revealModal.classList.add('opacity-0', 'pointer-events-none');
+            document.getElementById('roleRevealContainer').classList.remove('scale-100');
+            document.getElementById('roleRevealContainer').classList.add('scale-95');
+            setTimeout(() => { revealModal.classList.add('hidden'); }, 500);
+
+            setWorld(0);
+            broadcastLog(`遊戲大廳連線成功！由 班可迪斯國 進行第一回合。`);
+        }
+
+        // -----------------------
+        // 工具：全域懸浮文字方塊 (防擋機制)
+        // -----------------------
+        const tooltip = document.getElementById('global-tooltip');
+        function showCardTooltip(e, title, desc, reward) {
+            tooltip.innerHTML = `
+                <p class="font-bold mb-1 text-theme-yellow text-[10px] uppercase tracking-widest">📝 事件敘述</p>
+                <p class="mb-3 leading-relaxed text-theme-white text-xs font-medium">${desc || '無詳細敘述'}</p>
+                <p class="font-bold mb-1 text-theme-yellow text-[10px] uppercase tracking-widest">🎁 解決獎勵</p>
+                <p class="text-theme-white text-xs font-medium">${reward || '依規則分配'}</p>
+            `;
+            tooltip.classList.remove('hidden', 'opacity-0');
+            moveCardTooltip(e);
+        }
+        function moveCardTooltip(e) {
+            let x = e.clientX + 15;
+            let y = e.clientY + 15;
+            if (x + 260 > window.innerWidth) x = e.clientX - 260 - 15;
+            if (y + 150 > window.innerHeight) y = e.clientY - 150 - 15;
+            tooltip.style.left = `${x}px`;
+            tooltip.style.top = `${y}px`;
+        }
+        function hideCardTooltip() { tooltip.classList.add('hidden', 'opacity-0'); }
+
+        // --- 全域日誌廣播 ---
+        function broadcastLog(msg) {
+            const logEl = document.getElementById('game-log-text');
+            if(logEl) {
+                logEl.textContent = msg;
+                logEl.classList.remove('animate-pulse');
+                void logEl.offsetWidth; 
+                logEl.classList.add('animate-pulse');
+            }
+        }
+
+        // -----------------------
+        // 0. 玩家輪流行動邏輯 & 個人任務初始化
+        // -----------------------
+        let currentPlayerTurn = 0; 
+        const players = ['我', '阿美利卡國', 'How.How 服飾', '捍衛公平委員會'];
+        function nextTurn() {
+            currentPlayerTurn = (currentPlayerTurn + 1) % 4;
+            for (let i = 0; i < 4; i++) {
+                const el = document.getElementById(`player-turn-${i}`);
+                if (i === currentPlayerTurn) {
+                    el.className = 'flex items-center gap-1 font-bold text-theme-yellow bg-theme-black px-2 py-0.5 rounded shadow-sm transition-all opacity-100 text-xs border border-theme-black';
+                    el.querySelector('span').classList.add('text-base');
+                } else {
+                    el.className = 'flex items-center gap-1 font-bold text-theme-gray px-1 transition-all opacity-50 text-xs';
+                    el.querySelector('span').classList.remove('text-base');
+                }
+            }
+            broadcastLog(`回合交替：現在輪到【${players[currentPlayerTurn]}】行動了。`);
+        }
+
+        const personalMissionsDB = [
+            { title: '累積財富', desc: '大量累積財富，擠進全球富豪排行榜前十名。', req: { money: 6, material: 3, tech: 2, house: 1 }, reward: '聲望值 +6' },
+            { title: '獨佔資源', desc: '掌握稀世珍貴資源，獨佔全球唯一開發許可。', req: { money: 1, material: 6, tech: 3, house: 2 }, reward: '聲望值 +6' },
+            { title: '知名人物', desc: '開發獨家創新技術，成為該領域的知名人物。', req: { money: 1, material: 2, tech: 6, house: 3 }, reward: '聲望值 +6' },
+            { title: '提升地位', desc: '積極關注社會議題，獲得社會地位上的提升。', req: { money: 3, material: 2, tech: 1, house: 6 }, reward: '聲望值 +6' }
+        ];
+
+        function initPersonalMission() {
+            const pm = personalMissionsDB[Math.floor(Math.random() * personalMissionsDB.length)];
+            
+            const reqHtml = `
+                <div class="bg-theme-white py-1.5 rounded shadow-sm text-theme-black border border-theme-gray/30" title="金錢">${GAME_ASSETS.res_money} ${pm.req.money}</div>
+                <div class="bg-theme-white py-1.5 rounded shadow-sm text-theme-black border border-theme-gray/30" title="物資">${GAME_ASSETS.res_material} ${pm.req.material}</div>
+                <div class="bg-theme-white py-1.5 rounded shadow-sm text-theme-black border border-theme-gray/30" title="技術">${GAME_ASSETS.res_tech} ${pm.req.tech}</div>
+                <div class="bg-theme-white py-1.5 rounded shadow-sm text-theme-black border border-theme-gray/30" title="房子">${GAME_ASSETS.res_house} ${pm.req.house}</div>
+            `;
+
+            // 更新右側面板
+            document.getElementById('pm-title').textContent = pm.title;
+            document.getElementById('pm-desc').textContent = pm.desc;
+            document.getElementById('pm-req').innerHTML = reqHtml;
+            document.getElementById('pm-reward').textContent = pm.reward;
+            
+            // 更新揭曉視窗
+            document.getElementById('reveal-pm-title').textContent = pm.title;
+            document.getElementById('reveal-pm-desc').textContent = pm.desc;
+            document.getElementById('reveal-pm-req').innerHTML = reqHtml;
+            document.getElementById('reveal-pm-reward').textContent = pm.reward;
+        }
+
+        // -----------------------
+        // 0.1 可拖曳旗子邏輯
+        // -----------------------
+        function allowDrop(ev) { ev.preventDefault(); }
+        function drag(ev) { ev.dataTransfer.setData("text", ev.target.id); }
+        function drop(ev) {
+            ev.preventDefault();
+            const data = ev.dataTransfer.getData("text");
+            const tile = ev.target.closest('.game-tile');
+            if (tile) {
+                const targetContainer = tile.querySelector('.token-container');
+                if (targetContainer) targetContainer.appendChild(document.getElementById(data));
+            }
+        }
+
+        // -----------------------
+        // 1. 虛擬骰子邏輯 (1~3點)
+        // -----------------------
+        const diceBtn = document.getElementById('diceBtn');
+        const diceIcon = document.getElementById('diceIcon');
+        const diceResultBox = document.getElementById('diceResultBox');
+        let isRolling = false;
+
+        diceBtn.addEventListener('click', () => {
+            if (isRolling) return; 
+            isRolling = true;
+            diceIcon.classList.add('animate-dice-roll');
+            diceResultBox.classList.remove('opacity-100', 'translate-y-0');
+            diceResultBox.classList.add('opacity-0', 'translate-y-4');
+
+            const rollInterval = setInterval(() => {
+                diceIcon.textContent = ['⚀', '⚁', '⚂'][Math.floor(Math.random() * 3)];
+            }, 80); 
+
+            setTimeout(() => {
+                clearInterval(rollInterval);
+                isRolling = false;
+                const finalResult = Math.floor(Math.random() * 3) + 1;
+                diceIcon.textContent = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'][finalResult - 1];
+                diceIcon.classList.remove('animate-dice-roll');
+                
+                document.getElementById('diceResultText').textContent = `🎲 擲出了 ${finalResult} 點！`;
+                document.getElementById('diceHintText').innerHTML = `獲取 <span class="text-theme-yellow font-black">${finalResult}</span> 份資源`;
+
+                diceResultBox.classList.remove('opacity-0', 'translate-y-4');
+                diceResultBox.classList.add('opacity-100', 'translate-y-0');
+                
+                broadcastLog(`【${players[currentPlayerTurn]}】 擲出了 ${finalResult} 點！`);
+
+                setTimeout(() => {
+                    if(!isRolling) {
+                        diceResultBox.classList.remove('opacity-100', 'translate-y-0');
+                        diceResultBox.classList.add('opacity-0', 'translate-y-4');
+                        setTimeout(() => diceIcon.textContent = '🎲', 300);
+                    }
+                }, 3000);
+            }, 1200);
+        });
+
+        // -----------------------
+        // 2. 地圖卡牌點擊與真實新聞邏輯
+        // -----------------------
+        const cardModal = document.getElementById('cardModal');
+        const cardContainer = document.getElementById('cardContainer');
+        const shelveCardBtn = document.getElementById('shelveCardBtn');
+        
+        const newsDatabase = [
+            { type: '社會', title: '公平貿易新承諾', desc: '某知名服飾品牌宣布僅和公平貿易認證工廠合作，且每年親自檢查工資福利。', isTrue: true, explanation: '✅ 真實新聞。這符合人道永續與透明化的商業趨勢。' },
+            { type: '社會', title: '國際組織介入童工權益', desc: '某國成衣廠違法雇用童工。在國際組織監督下，童工權益已「完全」受到保護。', isTrue: false, explanation: '❌ 錯誤假新聞。雖然有介入，但許多落後國家的童工問題至今仍無法完全根除。' },
+            { type: '經濟', title: '開徵生態稅', desc: '某國為降低快時尚對本土產業衝擊，禁止品牌宣傳，並收取額外生態稅。', isTrue: true, explanation: '✅ 真實新聞。法國等多國已開始研擬或實施相關生態稅收以抵制快時尚。' },
+            { type: '經濟', title: '不敵二手衣進口', desc: '大量二手衣進口打擊了本土品牌，總統開始要求公家機關制服必須本地製造。', isTrue: true, explanation: '✅ 真實新聞。二手衣傾銷的確嚴重打擊了非洲等開發中國家的紡織產業。' },
+            { type: '環境', title: '讓汙水歸零保證無害', desc: '某政府聲明，企業排放到河流的工業廢水不僅對環境無害，還成為飲用水源。', isTrue: false, explanation: '❌ 錯誤假新聞。工業廢水含有大量微重金屬與化學物質，極難完全過濾。' },
+            { type: '環境', title: '服飾產業用水量全球之冠', desc: '時裝產業對水資源的消耗佔全球第一，超過了農業灌溉用水量。', isTrue: false, explanation: '❌ 錯誤假新聞。農業灌溉目前仍是全球水資源消耗最大宗的產業。' }
+        ];
+
+        const cardDatabase = {
+            'SOS': { color: 'bg-theme-red text-theme-white', desc: '您翻開了一張【緊急事件卡】！<br><br><strong>人道救援：</strong>疾病纏身卻沒錢看病的老先生急需醫療協助。', condition: `需 ${GAME_ASSETS.res_money} 1 / ${GAME_ASSETS.res_tech} 1`, reward: `${GAME_ASSETS.idx_econ} 經濟指數 +1` },
+            '資源蒐集': { color: 'bg-theme-yellow text-theme-black', desc: '您來到了資源蒐集區！請點擊旁邊的骰子獲取資源。', condition: null, reward: null },
+            '全球貿易': { color: 'bg-theme-black text-theme-white', desc: '港口貿易繁盛，您獲得了交易特權！可以 1:1 兌換資源。', condition: null, reward: null },
+            '國際會議': { color: 'bg-theme-black text-theme-white', desc: '各國代表齊聚一堂。發起提案，同意過半數即可通過。', condition: null, reward: null },
+            '起點': { color: 'bg-theme-black text-theme-white', desc: '遊戲開始！準備好拯救這個危機四伏的世界了嗎？', condition: null, reward: null },
+            '空白': { color: 'bg-theme-gray text-theme-white', desc: '此處為空白區域，本回合沒有觸發任何事件。', condition: null, reward: null }
+        };
+
+        let pendingEmergency = null; 
+        let currentNewsReward = null;
+
+        function triggerTile(element) {
+            const title = element.getAttribute('data-title');
+            const subtitle = element.getAttribute('data-subtitle');
+            let icon = element.parentElement.querySelector('.text-5xl')?.innerHTML || '📌';
+            
+            document.getElementById('newsAnswerBox').classList.add('hidden');
+            document.getElementById('revealNewsBtn').classList.add('hidden');
+
+            if (title === '資訊判讀') {
+                const typeName = subtitle.replace('新聞', ''); 
+                const filteredNews = newsDatabase.filter(n => n.type === typeName);
+                const randomNews = filteredNews[Math.floor(Math.random() * filteredNews.length)];
+                
+                document.getElementById('cardIcon').innerHTML = icon;
+                document.getElementById('cardTitle').textContent = `📰 ${randomNews.title}`;
+                document.getElementById('cardSubtitle').textContent = subtitle;
+                document.getElementById('cardDescription').innerHTML = `<strong>新聞內容：</strong><br>${randomNews.desc}<br><br><span class="text-theme-gray text-sm font-bold">請判斷這則新聞是真實還是錯誤的？</span>`;
+                
+                let finalColor = typeName === '環境' ? 'bg-green-600 text-theme-white' : (typeName === '經濟' ? 'bg-pink-600 text-theme-white' : 'bg-red-600 text-theme-white');
+                document.getElementById('cardHeader').className = `p-5 text-center relative transition-colors duration-300 ${finalColor}`;
+                
+                document.getElementById('cardActionBox').classList.add('hidden');
+                
+                document.getElementById('revealNewsBtn').classList.remove('hidden');
+                document.getElementById('newsTruth').textContent = randomNews.isTrue ? "⭕ 這是一則 真實新聞！" : "❌ 這是一則 錯誤假新聞！";
+                document.getElementById('newsTruth').className = `font-black mb-2 text-lg ${randomNews.isTrue ? 'text-theme-black' : 'text-theme-red'}`;
+                document.getElementById('newsExplanation').textContent = randomNews.explanation;
+                
+                currentNewsReward = { type: typeName === '環境'?'env':(typeName==='經濟'?'econ':'social'), name: typeName };
+                shelveCardBtn.classList.add('hidden');
+                broadcastLog(`【${players[currentPlayerTurn]}】 翻開了一張 ${subtitle} 卡。`);
+
+            } else {
+                const cardData = cardDatabase[title] || cardDatabase['空白'];
+                document.getElementById('cardIcon').innerHTML = icon;
+                document.getElementById('cardTitle').textContent = title;
+                document.getElementById('cardSubtitle').textContent = subtitle;
+                document.getElementById('cardDescription').innerHTML = cardData.desc;
+                document.getElementById('cardHeader').className = `p-5 text-center relative transition-colors duration-300 ${cardData.color}`;
+
+                if(cardData.condition) {
+                    document.getElementById('cardActionBox').classList.remove('hidden');
+                    document.getElementById('cardCondition').innerHTML = cardData.condition;
+                    document.getElementById('cardReward').innerHTML = cardData.reward;
+                } else {
+                    document.getElementById('cardActionBox').classList.add('hidden');
+                }
+
+                if (title === 'SOS') {
+                    shelveCardBtn.classList.remove('hidden');
+                    shelveCardBtn.classList.add('block');
+                    pendingEmergency = {
+                        title: '緊急：人道救援',
+                        desc: '疾病纏身卻沒錢看病的老先生急需醫療協助。',
+                        reward: '經濟行動指數 +1',
+                        req: { money: 1, tech: 1, material: 0, house: 0 },
+                        invested: { money: 0, tech: 0, material: 0, house: 0 }
+                    };
+                    broadcastLog(`【${players[currentPlayerTurn]}】 踩到了 SOS，觸發緊急事件！`);
+                } else {
+                    shelveCardBtn.classList.add('hidden');
+                    if(title !== '空白') broadcastLog(`【${players[currentPlayerTurn]}】 執行了 ${title} 行動。`);
+                }
+            }
+
+            cardModal.classList.remove('opacity-0', 'pointer-events-none');
+            cardModal.classList.add('opacity-100', 'pointer-events-auto');
+            cardContainer.classList.remove('scale-95');
+            cardContainer.classList.add('scale-100');
+        }
+
+        // ✅ 任務 1：揭曉新聞答案時，同時顯示獲得的獎勵與說明
+        function revealNewsAnswer() {
+            document.getElementById('revealNewsBtn').classList.add('hidden');
+            document.getElementById('newsAnswerBox').classList.remove('hidden');
+            
+            // 系統自動發放獎勵
+            updateIdx(currentNewsReward.type, 1);
+            
+            // 將獎勵資訊填入 UI 區塊
+            document.getElementById('newsRewardInfo').innerHTML = `
+                🎁 恭喜答對！已自動為您發放 <strong>1 點 ${currentNewsReward.name}行動指數</strong>。<br>
+                <span class="text-[10px] font-medium mt-1 block opacity-80">(規則：集齊社會、經濟、環境各 1 點即可自動換算 1 點聲望值)</span>
+            `;
+            
+            broadcastLog(`【${players[currentPlayerTurn]}】 判讀新聞成功，獲得 1 點${currentNewsReward.name}指數！`);
+        }
+
+        function closeCard() {
+            cardModal.classList.remove('opacity-100', 'pointer-events-auto');
+            cardModal.classList.add('opacity-0', 'pointer-events-none');
+            cardContainer.classList.remove('scale-100');
+            cardContainer.classList.add('scale-95');
+        }
+
+        document.getElementById('closeCardBtn').addEventListener('click', closeCard);
+        document.getElementById('confirmCardBtn').addEventListener('click', closeCard);
+        cardModal.addEventListener('click', (e) => { if(e.target === cardModal) closeCard(); });
+
+        // -----------------------
+        // 3. 全局共享任務與事件區
+        // -----------------------
+        let activeMissions = []; 
+        let activeEmergencies = []; 
+
+        const mockMissionDB = [
+            { title: '供應斷鏈', desc: '一場意外導致成衣製造短缺，需投入人力加速生產。', reward: '聲望+1 / 世界狀態+1', req: { money: 2, material: 2, tech: 0, house: 0 } },
+            { title: '河川汙染', desc: '上游工廠排放大量廢水造成無水可用，需建造淨水設施。', reward: '聲望+2 / 世界狀態+1', req: { money: 3, tech: 1, material: 0, house: 0 } },
+            { title: '森林大火', desc: '森林大火延燒多個小鎮，失去家園的百姓向國際求援。', reward: '聲望+2 / 世界狀態+1', req: { material: 3, house: 1, money: 0, tech: 0 } },
+            { title: '非法童工', desc: '破獲跨國人口販運事件，發現被迫非法打工的兒童。', reward: '聲望+1 / 世界狀態+1', req: { money: 1, house: 2, material: 0, tech: 1 } }
+        ];
+
+        function drawMission() {
+            if (activeMissions.length >= 6) { alert("共同任務區已滿！"); return; }
+            let template = mockMissionDB[Math.floor(Math.random() * mockMissionDB.length)];
+            activeMissions.push({
+                title: template.title,
+                desc: template.desc,
+                reward: template.reward,
+                req: { ...template.req },
+                invested: { money: 0, material: 0, tech: 0, house: 0 }
+            });
+            broadcastLog(`發布了新的共同任務：【${template.title}】`);
+            renderGlobalCards();
+        }
+
+        function shelveEmergency() {
+            if (activeEmergencies.length >= 2) { alert("緊急事件區已滿！必須立刻解決！"); return; }
+            activeEmergencies.push(pendingEmergency);
+            broadcastLog(`【${players[currentPlayerTurn]}】 將緊急事件擱置。`);
+            closeCard();
+            renderGlobalCards();
+        }
+
+        function investRes(type, index, resKey, amount) {
+            let card = type === 'mission' ? activeMissions[index] : activeEmergencies[index];
+            if (amount > 0 && card.invested[resKey] < card.req[resKey]) {
+                card.invested[resKey] += amount;
+                broadcastLog(`有人對 ${card.title} 投資了資源！`);
+                renderGlobalCards();
+            } else if (amount < 0 && card.invested[resKey] > 0) {
+                card.invested[resKey] += amount;
+                renderGlobalCards();
+            }
+        }
+
+        let currentSolveTarget = null;
+        function openSolveModal(type, index) {
+            currentSolveTarget = { type, index };
+            const modal = document.getElementById('solveModal');
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            document.getElementById('solveContainer').classList.remove('scale-95');
+        }
+
+        function closeSolveModal() {
+            document.getElementById('solveModal').classList.add('opacity-0', 'pointer-events-none');
+            document.getElementById('solveContainer').classList.add('scale-95');
+        }
+
+        function awardSolve(player) {
+            if (player === 'me') updatePrestige(1); 
+            else alert('已將獎勵紀錄至該對手面板！(此為示意)');
+            
+            let solvedTitle = currentSolveTarget.type === 'mission' ? activeMissions[currentSolveTarget.index].title : activeEmergencies[currentSolveTarget.index].title;
+            broadcastLog(`🎉 恭喜！【${solvedTitle}】已被解決！`);
+
+            if (currentSolveTarget.type === 'mission') activeMissions.splice(currentSolveTarget.index, 1);
+            else activeEmergencies.splice(currentSolveTarget.index, 1);
+            
+            updateWorld(1);
+            renderGlobalCards();
+            closeSolveModal();
+        }
+
+        function renderGlobalCards() {
+            const mContainer = document.getElementById('common-missions-container');
+            const eContainer = document.getElementById('emergency-events-container');
+            
+            mContainer.innerHTML = '';
+            for(let i=0; i<6; i++) {
+                if(activeMissions[i]) mContainer.innerHTML += generateCardHTML(activeMissions[i], 'mission', i, 'border-theme-yellow bg-theme-yellow/10', 'text-theme-black');
+                else mContainer.innerHTML += `<div class="aspect-[2/3] border-2 border-dashed border-theme-gray/50 rounded-xl flex items-center justify-center bg-theme-gray/10"><span class="text-theme-gray font-bold text-xs">任務空位</span></div>`;
+            }
+
+            eContainer.innerHTML = '';
+            for(let i=0; i<2; i++) {
+                if(activeEmergencies[i]) eContainer.innerHTML += generateCardHTML(activeEmergencies[i], 'emergency', i, 'border-theme-red bg-theme-red/10', 'text-theme-red');
+                else eContainer.innerHTML += `<div class="aspect-[2/3] border-2 border-dashed border-theme-red/50 rounded-xl flex items-center justify-center bg-theme-red/10"><span class="text-theme-red/70 font-bold text-xs">事件空位</span></div>`;
+            }
+        }
+
+        function generateCardHTML(card, type, idx, colorClass, textClass) {
+            let resHTML = '';
+            let isSolved = true;
+            for(let key in card.req) {
+                if(card.req[key] > 0) {
+                    let icon = key==='money'?GAME_ASSETS.res_money:key==='material'?GAME_ASSETS.res_material:key==='tech'?GAME_ASSETS.res_tech:GAME_ASSETS.res_house;
+                    if (card.invested[key] < card.req[key]) isSolved = false;
+                    resHTML += `
+                    <div class="flex justify-between items-center text-[11px] bg-theme-white p-1 rounded-lg border border-theme-gray/30 mb-1 shadow-sm relative z-20">
+                        <span class="font-bold text-theme-black flex items-center gap-1">${icon} ${card.invested[key]}/${card.req[key]}</span>
+                        <div class="flex gap-1">
+                            <button onclick="investRes('${type}', ${idx}, '${key}', -1)" class="bg-theme-gray/20 text-theme-black w-5 h-5 rounded hover:bg-theme-yellow hover:border-theme-black active:scale-95 font-bold flex items-center justify-center cursor-pointer pointer-events-auto border border-transparent transition-colors">-</button>
+                            <button onclick="investRes('${type}', ${idx}, '${key}', 1)" class="bg-theme-gray/20 text-theme-black w-5 h-5 rounded hover:bg-theme-yellow hover:border-theme-black active:scale-95 font-bold flex items-center justify-center cursor-pointer pointer-events-auto border border-transparent transition-colors">+</button>
+                        </div>
+                    </div>`;
+                }
+            }
+
+            return `
+            <div class="aspect-[2/3] border-2 ${colorClass} rounded-xl flex flex-col p-2 shadow-sm relative overflow-visible cursor-help"
+                 onmouseenter="showCardTooltip(event, '${card.title}', '${card.desc}', '${card.reward}')"
+                 onmousemove="moveCardTooltip(event)"
+                 onmouseleave="hideCardTooltip()">
+                <span class="text-xs font-bold ${textClass} mb-1 truncate border-b border-theme-gray/30 pb-1 z-20">${card.title}</span>
+                <div class="flex-1 overflow-y-auto custom-scroll pr-1 z-20">${resHTML}</div>
+                ${isSolved 
+                  ? `<button onclick="openSolveModal('${type}', ${idx})" class="w-full bg-theme-yellow border-2 border-theme-black text-theme-black text-[11px] font-black py-1.5 rounded-lg shadow-md mt-1 animate-pulse hover:bg-[#d1ad15] active:scale-95 z-20 relative cursor-pointer pointer-events-auto">✅ 解決領賞</button>` 
+                  : `<button disabled class="w-full bg-theme-gray/20 text-theme-gray text-[11px] font-bold py-1.5 rounded-lg mt-1 cursor-not-allowed z-20 relative border border-theme-gray/30">未達標</button>`
+                }
+            </div>`;
+        }
+
+        // -----------------------
+        // 4. 個人儀表板與狀態軌道
+        // -----------------------
+        const state = { round: 1, res: { money: 0, material: 0, tech: 0, house: 0 }, idx: { social: 0, econ: 0, env: 0 }, world: 0, prestige: 0 };
+
+        function updateRound(change) {
+            state.round = Math.max(1, state.round + change);
+            document.getElementById('val-round').textContent = `第 ${state.round} 回合`;
+        }
+        function updateRes(type, change) {
+            state.res[type] = Math.max(0, state.res[type] + change);
+            document.getElementById(`res-${type}`).textContent = state.res[type];
+        }
+        function updateIdx(type, change) {
+            state.idx[type] = Math.max(0, state.idx[type] + change);
+            document.getElementById(`idx-${type}`).textContent = state.idx[type];
+        }
+        function updatePrestige(change) {
+            state.prestige = Math.max(0, state.prestige + change);
+            document.getElementById('val-prestige').textContent = state.prestige;
+        }
+
+        function updateWorld(change) { setWorld(state.world + change); }
+        function setWorld(val) {
+            state.world = Math.max(-5, Math.min(4, val));
+            const index = state.world + 5, startIndex = 5;
+            
+            const fillTrack = document.getElementById('world-track-fill');
+            fillTrack.style.left = `${(Math.min(startIndex, index) / 9) * 100}%`;
+            fillTrack.style.width = `${(Math.abs(index - startIndex) / 9) * 100}%`;
+            
+            // 色票規則對應
+            fillTrack.className = `absolute h-2 rounded-full z-0 transition-all duration-500 ${state.world < 0 ? 'bg-theme-red' : state.world > 0 ? 'bg-theme-yellow' : 'bg-theme-gray/50'}`;
+
+            const el = document.getElementById('val-world');
+            el.textContent = state.world < 0 ? `危機 (${state.world})` : state.world > 0 ? `繁榮 (+${state.world})` : `起點 (0)`;
+            el.className = `text-xs font-black px-3 py-1 rounded-md transition-colors ml-2 ${state.world < 0 ? 'text-theme-white bg-theme-red' : state.world > 0 ? 'text-theme-black bg-theme-yellow border border-theme-black' : 'text-theme-white bg-theme-black'}`;
+
+            document.querySelectorAll('.world-node').forEach((node, i) => {
+                const circle = node.querySelector('.node-circle'), label = node.querySelector('span');
+                circle.classList.remove('ring-4', 'ring-theme-yellow', 'scale-150');
+                const isPassed = (i >= Math.min(startIndex, index)) && (i <= Math.max(startIndex, index));
+                
+                if (i === index) {
+                    circle.classList.add('ring-4', 'ring-theme-yellow', 'scale-150');
+                    circle.style.opacity = '1';
+                    if (label) { label.classList.add('scale-110', 'font-black'); label.classList.remove('opacity-50', 'font-medium'); }
+                } else if (isPassed) {
+                    circle.style.opacity = '1';
+                    if (label) { label.classList.remove('scale-110', 'font-black', 'opacity-50'); label.classList.add('font-medium'); }
+                } else {
+                    circle.style.opacity = '0.4';
+                    if (label) { label.classList.remove('scale-110', 'font-black'); label.classList.add('opacity-50', 'font-medium'); }
+                }
+            });
+        }
+
+        // 初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            setWorld(0);
+        });
+
+    </script>
+</body>
+</html>
